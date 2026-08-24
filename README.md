@@ -47,7 +47,7 @@ on `PATH` (or discoverable via winget on Windows).
 ```bash
 python -m venv .venv
 .venv\Scripts\activate          # Windows
-pip install -r Requirements.txt
+pip install -r requirements.txt
 ```
 
 Create a `.env` file in the project root:
@@ -71,6 +71,24 @@ streamlit run app.py
 ```bash
 python main.py
 ```
+
+## Deploying to Streamlit Community Cloud
+
+1. Push this repo to GitHub (already done if you're reading this from there).
+2. Go to [share.streamlit.io](https://share.streamlit.io) → **New app** → pick
+   this repo/branch and set the main file to `app.py`.
+3. Under **Advanced settings → Secrets**, add your keys in TOML form:
+   ```toml
+   MISTRAL_API_KEY = "your_mistral_api_key"
+   SARVAM_API_KEY = "your_sarvam_api_key"
+   ```
+4. Deploy. `packages.txt` (ffmpeg) and `requirements.txt` are picked up
+   automatically.
+
+> **Note:** local Whisper transcription is CPU/RAM-heavy (it pulls in
+> PyTorch). On the free Community Cloud tier this can be slow or hit memory
+> limits — set `WHISPER_MODEL = "tiny"` or `"base"` in the app's secrets if
+> you run into that.
 
 ## Notes
 

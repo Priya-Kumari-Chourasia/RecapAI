@@ -6,6 +6,15 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+# On Streamlit Community Cloud, secrets come from st.secrets (the Secrets
+# panel in the app dashboard), not a .env file. Mirror them into os.environ
+# before importing core modules, since some read env vars at import time.
+try:
+    for _key, _value in st.secrets.items():
+        os.environ.setdefault(_key, str(_value))
+except Exception:
+    pass
+
 from core.extractor import extract_action_items, extract_key_decisions, extract_questions
 from core.rag_engine import ask_question, build_rag_chain
 from core.summarizer import generate_title, summarize
