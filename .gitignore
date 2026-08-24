@@ -1,0 +1,11 @@
+.env
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# Runtime-generated data
+downloads/
+uploads/
+vector_db/
