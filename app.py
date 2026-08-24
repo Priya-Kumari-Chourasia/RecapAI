@@ -9,11 +9,26 @@ load_dotenv()
 # On Streamlit Community Cloud, secrets come from st.secrets (the Secrets
 # panel in the app dashboard), not a .env file. Mirror them into os.environ
 # before importing core modules, since some read env vars at import time.
+# Flattens one level of [section] nesting too, since pasting keys under a
+# TOML header (instead of at the top level) is the most common way this
+# silently fails to reach os.environ.
+_secrets_seen = []
+_secrets_error = None
 try:
-    for _key, _value in st.secrets.items():
-        os.environ.setdefault(_key, str(_value))
-except Exception:
-    pass
+    def _flatten_secrets(mapping, out):
+        for k, v in mapping.items():
+            if hasattr(v, "items"):
+                _flatten_secrets(v, out)
+            else:
+                out[k] = str(v)
+
+    _flat_secrets = {}
+    _flatten_secrets(st.secrets, _flat_secrets)
+    for _key, _value in _flat_secrets.items():
+        os.environ.setdefault(_key, _value)
+        _secrets_seen.append(_key)
+except Exception as _e:
+    _secrets_error = str(_e)
 
 from core.extractor import extract_action_items, extract_key_decisions, extract_questions
 from core.rag_engine import ask_question, build_rag_chain
@@ -313,7 +328,24 @@ with st.sidebar:
             missing.append("SARVAM_API_KEY")
         if not mistral_ok:
             missing.append("MISTRAL_API_KEY")
-        st.caption(f"⚠️ Missing from .env: {', '.join(missing)}")
+        st.caption(f"⚠️ Not configured: {', '.join(missing)}")
+        with st.expander("Why am I seeing this?"):
+            if _secrets_error:
+                st.caption(f"Couldn't read st.secrets: {_secrets_error}")
+            elif _secrets_seen:
+                st.caption(
+                    "Keys detected via st.secrets / .env: "
+                    + ", ".join(sorted(_secrets_seen))
+                    + ". If the missing key isn't listed here, check for a typo "
+                    "or a [section] header wrapping it in the Secrets box."
+                )
+            else:
+                st.caption(
+                    "No keys detected at all. Locally: check your .env file. "
+                    "On Streamlit Cloud: Manage app → Settings → Secrets — "
+                    "paste keys at the top level (no [section] header), save, "
+                    "then reboot the app."
+                )
 
     st.divider()
     process_clicked = st.button(
