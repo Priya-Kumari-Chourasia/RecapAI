@@ -314,20 +314,20 @@ with st.sidebar:
 
     engine_label = "Sarvam AI" if language == "hinglish" else "Whisper (local)"
     engine_ok = bool(os.getenv("SARVAM_API_KEY")) if language == "hinglish" else True
-    mistral_ok = bool(os.getenv("MISTRAL_API_KEY"))
+    groq_ok = bool(os.getenv("GROQ_API_KEY"))
 
     st.markdown(
-        f'<div class="chip-row">{chip(engine_label, engine_ok)}{chip("Mistral LLM", mistral_ok)}</div>',
+        f'<div class="chip-row">{chip(engine_label, engine_ok)}{chip("Groq LLM", groq_ok)}</div>',
         unsafe_allow_html=True,
     )
 
-    missing_key = not engine_ok or not mistral_ok
+    missing_key = not engine_ok or not groq_ok
     if missing_key:
         missing = []
         if not engine_ok:
             missing.append("SARVAM_API_KEY")
-        if not mistral_ok:
-            missing.append("MISTRAL_API_KEY")
+        if not groq_ok:
+            missing.append("GROQ_API_KEY")
         st.caption(f"⚠️ Not configured: {', '.join(missing)}")
         with st.expander("Why am I seeing this?"):
             if _secrets_error:
