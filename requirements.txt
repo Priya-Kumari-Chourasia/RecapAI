@@ -11,6 +11,7 @@ audioop-lts>=0.2.1; python_version>="3.13"  # Backport of stdlib audioop, remove
 openai-whisper>=20231117          # OpenAI Whisper (runs locally)
 torch>=2.2.0                      # PyTorch backend for Whisper
 torchaudio>=2.2.0                 # Audio utilities for PyTorch
+torchvision>=0.21.0
 
 # ── Translation (Hindi → English) ─────────────────────────────────────────────
 deep-translator>=1.11.4           # Lightweight translation wrapper (Google backend)
