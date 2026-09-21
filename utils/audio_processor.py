@@ -34,13 +34,18 @@ def download_youtube_audio(url: str) -> str:
             }
         ],
         "quiet": True,
-    }
+        "extractor_args": {
+        "youtube": {"player_client": ["android", "web"]}
+    },
+}
+    
     if _FFMPEG_DIR:
         ydl_opts["ffmpeg_location"] = _FFMPEG_DIR
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         info = ydl.extract_info(url, download=True)
-        filename = ydl.prepare_filename(info).replace(".webm", ".wav").replace(".m4a", ".wav")
-    return filename
+        base, _ = os.path.splitext(ydl.prepare_filename(info))
+        filename = base + ".wav"
+        return filename
 
 # FIX: Moved outside the function definition block
 #data = (download_youtube_audio("https://youtu.be/dy8VetlMgLw?si=cxts8jxgckeVG8-v"))
