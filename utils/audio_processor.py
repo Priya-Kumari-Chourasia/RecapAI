@@ -1,6 +1,8 @@
 import os
 import sys
 
+
+
 if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
     sys.stdout.reconfigure(encoding="utf-8")
 
@@ -21,11 +23,17 @@ if _FFMPEG_DIR:
     AudioSegment.ffprobe = os.path.join(_FFMPEG_DIR, "ffprobe.exe")
 
 
+
 def download_youtube_audio(url: str) -> str:
+    
     output_path = os.path.join(DOWNLOAD_DIR, "%(title)s.%(ext)s")
+    
+    
+    
     ydl_opts = {
         "format": "bestaudio/best",
         "outtmpl": output_path,
+        "force_ipv4": True,
         "postprocessors": [
             {
                 "key": "FFmpegExtractAudio",
