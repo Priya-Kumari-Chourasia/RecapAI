@@ -1,5 +1,6 @@
 import os
 import sys
+import platform
 
 
 
@@ -19,8 +20,9 @@ os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 
 _FFMPEG_DIR = find_ffmpeg_dir()
 if _FFMPEG_DIR:
-    AudioSegment.converter = os.path.join(_FFMPEG_DIR, "ffmpeg.exe")
-    AudioSegment.ffprobe = os.path.join(_FFMPEG_DIR, "ffprobe.exe")
+    _EXT = ".exe" if platform.system() == "Windows" else ""
+    AudioSegment.converter = os.path.join(_FFMPEG_DIR, f"ffmpeg{_EXT}")
+    AudioSegment.ffprobe = os.path.join(_FFMPEG_DIR, f"ffprobe{_EXT}")
 
 
 
