@@ -12,7 +12,7 @@ its transcript via RAG.
 - **Two transcription engines**
   - **English** — [OpenAI Whisper](https://github.com/openai/whisper), running locally.
   - **Hinglish → English** — [Sarvam AI](https://www.sarvam.ai/)'s speech-to-text-translate API.
-- **AI-generated insights** (via Mistral, through LangChain) — title, summary,
+- **AI-generated insights** (via [Groq](https://groq.com/), through LangChain) — title, summary,
   action items (with owner/deadline), key decisions, and open questions.
 - **Chat with the video** — a retrieval-augmented chat (Chroma vector store +
   HuggingFace sentence embeddings) that answers questions using only the
@@ -53,7 +53,7 @@ pip install -r requirements.txt
 Create a `.env` file in the project root:
 
 ```env
-MISTRAL_API_KEY=your_mistral_api_key       # required — summary, extraction & chat
+GROQ_API_KEY=your_groq_api_key             # required — summary, extraction & chat
 SARVAM_API_KEY=your_sarvam_api_key         # required only for Hinglish transcription
 SARVAM_STT_MODEL=saaras:v2.5               # optional, defaults to saaras:v2.5
 ```
@@ -79,7 +79,7 @@ python main.py
    this repo/branch and set the main file to `app.py`.
 3. Under **Advanced settings → Secrets**, add your keys in TOML form:
    ```toml
-   MISTRAL_API_KEY = "your_mistral_api_key"
+   GROQ_API_KEY = "your_groq_api_key"
    SARVAM_API_KEY = "your_sarvam_api_key"
    ```
 4. Deploy. `packages.txt` (ffmpeg) and `requirements.txt` are picked up
