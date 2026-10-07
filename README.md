@@ -36,7 +36,6 @@ utils/
   ffmpeg_path.py           Locates a local ffmpeg install for pydub/whisper
 downloads/                YouTube audio downloads (created at runtime)
 uploads/                  Uploaded files (created at runtime)
-vector_db/                Persisted Chroma vector store (created at runtime)
 ```
 
 ## Setup
@@ -78,10 +77,14 @@ python main.py
 2. Go to [share.streamlit.io](https://share.streamlit.io) → **New app** → pick
    this repo/branch and set the main file to `app.py`.
 3. Under **Advanced settings → Secrets**, add your keys in TOML form:
+<<<<<<< HEAD
    ```toml
+=======
+```toml
+>>>>>>> 320b003 (Isolate each session's video in its own Chroma collection)
    GROQ_API_KEY = "your_groq_api_key"
    SARVAM_API_KEY = "your_sarvam_api_key"
-   ```
+```
 4. Deploy. `packages.txt` (ffmpeg) and `requirements.txt` are picked up
    automatically.
 
@@ -96,5 +99,6 @@ python main.py
   (defaults to `small`).
 - Sarvam's sync API only accepts clips ≤30s, so Hinglish audio is
   automatically sliced into 25s pieces before being sent.
-- The vector store is rebuilt per video (in-memory build via
-  `build_rag_chain`), backed by a local Chroma collection.
+- The vector store is in-memory and isolated: each browser session has its
+  own Chroma collection, and processing a new video replaces that session's
+  previous one, so chat never retrieves chunks from another video or user.
