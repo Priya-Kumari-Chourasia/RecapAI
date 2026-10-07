@@ -1,5 +1,8 @@
+
+
 import os
 import re
+
 
 import streamlit as st
 from dotenv import load_dotenv
@@ -34,6 +37,7 @@ from core.extractor import extract_action_items, extract_key_decisions, extract_
 from core.rag_engine import ask_question, build_rag_chain
 from core.summarizer import generate_title, summarize
 from core.transcriber import transcribe_all
+from core.vector_store import new_collection_name
 from utils.audio_processor import process_input
 
 UPLOAD_DIR = "uploads"
@@ -248,6 +252,8 @@ if "result" not in st.session_state:
     st.session_state.result = None
 if "chat_history" not in st.session_state:
     st.session_state.chat_history = []
+if "collection_name" not in st.session_state:
+    st.session_state.collection_name = new_collection_name()
 
 
 def slugify(text: str) -> str:
@@ -400,7 +406,9 @@ if process_clicked and source:
             questions = extract_questions(transcript)
 
             status.write("🧠 Building knowledge base for chat…")
-            rag_chain = build_rag_chain(transcript)
+            rag_chain = build_rag_chain(
+                transcript, collection_name=st.session_state.collection_name
+            )
 
             st.session_state.result = {
                 "title": title,

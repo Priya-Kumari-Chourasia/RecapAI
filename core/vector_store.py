@@ -1,12 +1,17 @@
-import os 
+import os
+import uuid 
 from langchain_chroma import Chroma 
 from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_core.documents import Document
 
-CHROMA_DIR = "vector_db"
-COLLECTION_NAME = "meeting_transcript"
+#CHROMA_DIR = "vector_db"
+#COLLECTION_NAME = "meeting_transcript"
+COLLECTION_PREFIX = "transcript"
 EMBEDDING_MODEL  = "all-MiniLM-L6-v2"
+
+def new_collection_name() -> str:
+    return f"{COLLECTION_PREFIX}_{uuid.uuid4().hex}"
 
 def get_embeddings():
     return HuggingFaceEmbeddings(
@@ -14,7 +19,8 @@ def get_embeddings():
         model_kwargs = {"device" : 'cpu'}
     )
 
-def build_vector_store(transcript : str)->Chroma:
+def build_vector_store(transcript: str, collection_name: str | None = None) -> Chroma:
+    collection_name = collection_name or new_collection_name()
     print("Building vector Store")
 
     splitter = RecursiveCharacterTextSplitter(
@@ -29,11 +35,18 @@ def build_vector_store(transcript : str)->Chroma:
     ]
 
     embeddings = get_embeddings()
+    
+    # Empty this collection first, so a new video replaces the old one
+    Chroma(
+        collection_name=collection_name,
+        embedding_function=embeddings,
+    ).delete_collection()
+    
     vector_store = Chroma.from_documents(
         documents= docs,
         embedding=embeddings,
-        collection_name=COLLECTION_NAME,
-        persist_directory=CHROMA_DIR
+        collection_name=collection_name,
+        #persist_directory=CHROMA_DIR
     )
 
     return vector_store

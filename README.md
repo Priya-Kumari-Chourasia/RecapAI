@@ -77,14 +77,10 @@ python main.py
 2. Go to [share.streamlit.io](https://share.streamlit.io) → **New app** → pick
    this repo/branch and set the main file to `app.py`.
 3. Under **Advanced settings → Secrets**, add your keys in TOML form:
-<<<<<<< HEAD
    ```toml
-=======
-```toml
-
    GROQ_API_KEY = "your_groq_api_key"
    SARVAM_API_KEY = "your_sarvam_api_key"
-```
+   ```
 4. Deploy. `packages.txt` (ffmpeg) and `requirements.txt` are picked up
    automatically.
 
