@@ -81,7 +81,7 @@ python main.py
    ```toml
 =======
 ```toml
->>>>>>> 320b003 (Isolate each session's video in its own Chroma collection)
+
    GROQ_API_KEY = "your_groq_api_key"
    SARVAM_API_KEY = "your_sarvam_api_key"
 ```
