@@ -1,65 +1,79 @@
-from dotenv import load_dotenv
-from utils.audio_processor import process_input
-from core.transcriber import transcribe_all
-from core.summarizer import summarize, generate_title
-from core.extractor import extract_action_items, extract_key_decisions, extract_questions
-from core.rag_engine import build_rag_chain, ask_question
+"""Command-line version of Recap AI.
 
+    python main.py add <file-or-youtube-url> [--project P] [--title T] [--date YYYY-MM-DD] [--engine groq|sarvam|local]
+    python main.py ask [--project P]          (no --project = search all projects)
+    python main.py list [--project P]
+
+Uses the same workspace and storage as the Streamlit app (set RECAP_WORKSPACE, default "demo").
+"""
+import argparse
+import os
+
+from dotenv import load_dotenv
 
 load_dotenv()
 
-def run_pipeline(source :str, language :str = "english") -> dict:
-    print("starting AI Video Assistant")
+from core import rag_engine, vector_store  # noqa: E402
+from core.pipeline import process_recording  # noqa: E402
+from core.transcriber import format_timestamp  # noqa: E402
 
-    chunks = process_input(source)
+WS = vector_store.workspace_id(os.getenv("RECAP_WORKSPACE", os.getenv("DEFAULT_WORKSPACE", "demo")))
 
-    transcript = transcribe_all(chunks,language)
-    print(f"raw transcription (first 300 characters ) {transcript[:300]}")
 
-    title = generate_title(transcript)
-
-    summary = summarize(transcript)
-
-    action_item = extract_action_items(transcript)
-
-    decisions = extract_key_decisions(transcript)
-    questions = extract_questions(transcript)
-    
-    rag_chain = build_rag_chain(transcript)
-
-    return {
-        "title": title,
-        "transcript": transcript,
-        "summary": summary,
-        "action_items": action_item,
-        "key_decisions": decisions,
-        "open_questions": questions,
-        "rag_chain": rag_chain,
-    }
-
-if __name__ == "__main__":
-    # CLI entry point
-    source = input("Enter YouTube URL or local file path: ").strip()
-    language = input("Language (english/hinglish): ").strip() or "english"
-    result = run_pipeline(source, language)
-
+def cmd_add(args):
+    out = process_recording(
+        args.source, workspace=WS, project=args.project or vector_store.DEFAULT_PROJECT,
+        engine=args.engine, title=args.title, meeting_date=args.date,
+    )
+    m = out["meeting"]
     print("\n" + "=" * 60)
-    print(f"📌 Title: {result['title']}")
-    print(f"\n📋 Summary:\n{result['summary']}")
-    print(f"\n✅ Action Items:\n{result['action_items']}")
-    print(f"\n🔑 Key Decisions:\n{result['key_decisions']}")
-    print(f"\n❓ Open Questions:\n{result['open_questions']}")
+    print(f"📌 {m['title']} ({m['date']})\n\n{m['summary']}\n")
+    print("✅ Action items:")
+    for a in m["action_items"]:
+        print(f"  - {a['task']} — {a['owner']} (deadline: {a['deadline']})")
+    if out["followups"]:
+        print("\n🔁 Updated from earlier meetings:")
+        for c in out["followups"]:
+            print(f"  - [{c['status']}] {c['task']}: “{c['evidence']}”")
     print("=" * 60)
 
-    # Phase 2 — Chat with your meeting via RAG
-    print("\n💬 Chat with your meeting (type 'exit' to quit)\n")
-    rag_chain = result["rag_chain"]
+
+def cmd_list(args):
+    for m in vector_store.list_sources(WS, project=args.project):
+        open_items = sum(1 for a in m.get("action_items", []) if a["status"] != "done")
+        print(f"{m['date']}  [{m.get('project')}]  {m['title']}  ({open_items} open action items)")
+
+
+def cmd_ask(args):
+    print("💬 Ask across your meetings (type 'exit' to quit)\n")
+    history = []
     while True:
         question = input("You: ").strip()
-        if question.lower() in ["exit", "quit", "q"]:
-            print("👋 Goodbye!")
+        if question.lower() in {"exit", "quit", "q"}:
             break
         if not question:
             continue
-        answer = ask_question(rag_chain, question)
-        print(f"\n🤖 Assistant: {answer}\n")
+        result = rag_engine.answer_question(WS, question, history=history, project=args.project)
+        print(f"\n🤖 {result['answer']}")
+        for s in result["sources"]:
+            print(f"   [{s['ref']}] {rag_engine.describe(s)}")
+        print()
+        history += [{"role": "user", "content": question}, {"role": "assistant", "content": result["answer"]}]
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Recap AI — meeting memory")
+    sub = parser.add_subparsers(dest="command", required=True)
+    add = sub.add_parser("add", help="Transcribe a recording and save it to memory")
+    add.add_argument("source")
+    add.add_argument("--project", help="Project name (default: General)")
+    add.add_argument("--title")
+    add.add_argument("--date")
+    add.add_argument("--engine", default="groq", choices=["groq", "sarvam", "local"])
+    add.set_defaults(func=cmd_add)
+    for name, func, help_text in [("ask", cmd_ask, "Chat across meetings"), ("list", cmd_list, "List saved meetings")]:
+        cmd = sub.add_parser(name, help=help_text)
+        cmd.add_argument("--project", help="Limit to one project (default: all projects)")
+        cmd.set_defaults(func=func)
+    args = parser.parse_args()
+    args.func(args)

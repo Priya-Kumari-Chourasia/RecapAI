@@ -1,80 +1,59 @@
-from langchain_groq import ChatGroq
-from langchain_core.prompts import ChatPromptTemplate
-from langchain_core.output_parsers import StrOutputParser
+"""Title + summary (map-reduce over long transcripts).
+
+Recordings aren't always meetings (lectures, podcasts, videos, even music), so
+the prompts describe whatever was recorded and never ask the user questions.
+"""
+import re
+
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-from langchain_core.runnables import RunnablePassthrough, RunnableLambda
 
-import os
-from dotenv import load_dotenv
+from core.llm import complete
 
-load_dotenv()
+MAP_CHUNK_CHARS = 6000
 
-from utils.llm_retry import invoke_with_retry
+CONTEXT = (
+    "The text is an automatic transcript of a recording. It is usually a meeting, but it can also be a "
+    "lecture, talk, interview, video or anything else with audio. Work with whatever it is. "
+    "Never ask the user for more information and never reply that the text isn't a meeting."
+)
 
-def get_llm():
-    return ChatGroq(model = "openai/gpt-oss-120b", groq_api_key = os.getenv("GROQ_API_KEY"), temperature=0.3)
 
-
-def split_transcript(transcript: str) -> list:
-    splitter = RecursiveCharacterTextSplitter(
-        chunk_size = 3000,
-        chunk_overlap = 200
-    )
-
+def split_transcript(transcript: str, chunk_size: int = MAP_CHUNK_CHARS) -> list[str]:
+    splitter = RecursiveCharacterTextSplitter(chunk_size=chunk_size, chunk_overlap=200)
     return splitter.split_text(transcript)
 
-def summarize(transcript : str) -> str:
-    llm = get_llm()
 
-    map_prompt = ChatPromptTemplate.from_messages(
-        [
-        ("system", "Summarize this portion of a meeting transcript concisely."),
-        ("human", "{text}"),
-    ]
-    )
-
-    map_chain = map_prompt | llm | StrOutputParser()
-
+def summarize(transcript: str) -> str:
     chunks = split_transcript(transcript)
-
-    chunk_summaries = [invoke_with_retry(map_chain, {"text" : chunk}) for chunk in chunks]
-
-    combined = "\n\n".join(chunk_summaries)
-
-    combined_prompt = ChatPromptTemplate.from_messages(
-        [
-        (
-            "system",
-            "You are an expert meeting summarizer. Combine these partial summaries "
-            "into one final professional meeting summary in bullet points.",
-        ),
-        ("human", "{text}"),
-    ]
+    if len(chunks) == 1:
+        partials = chunks
+    else:
+        partials = [
+            complete(f"{CONTEXT}\nSummarize this portion concisely, keeping names, numbers and decisions.", c)
+            for c in chunks
+        ]
+    return complete(
+        f"{CONTEXT}\nWrite the final summary as 4-8 markdown bullet points. Lead with the most important "
+        "point. Keep names, numbers, deadlines and technical terms exact. Do not invent anything. "
+        "If it is not a meeting (e.g. a lecture or a song), summarize what it covers.",
+        "\n\n".join(partials),
     )
 
-    combined_chain = (
-        RunnablePassthrough() | RunnableLambda(lambda x:{"text":x}) | combined_prompt | llm | StrOutputParser()
+
+def clean_title(title: str) -> str | None:
+    """Reject chatty or broken titles (e.g. the model asking a question instead of answering)."""
+    title = re.sub(r"\s+", " ", title or "").strip().strip('"\'*#').strip()
+    if not title or title.endswith("?") or len(title.split()) > 12 or len(title) > 90:
+        return None
+    if re.search(r"\b(sorry|please provide|could you|i can't|i cannot)\b", title, re.I):
+        return None
+    return title
+
+
+def generate_title(summary: str, fallback: str = "Untitled recording") -> str:
+    title = complete(
+        f"{CONTEXT}\nWrite a short, specific title (max 8 words) for this recording based on its summary. "
+        "Return only the title, no quotes.",
+        summary[:3000],
     )
-
-    return invoke_with_retry(combined_chain, combined)
-
-def generate_title(transcript : str) -> str:
-    llm = get_llm()
-
-    
-
-    title_chain = (
-        RunnablePassthrough() | RunnableLambda(lambda x:{"text":x}) | 
-        ChatPromptTemplate.from_messages([
-             (
-                "system",
-                "Based on the meeting transcript, generate a short professional meeting title "
-                "(max 8 words). Only return the title, nothing else.",
-            ),
-            ("human", "{text}"),
-        ])
-        | llm
-        |StrOutputParser()
-    )
-
-    return invoke_with_retry(title_chain, transcript[:2000])
+    return clean_title(title) or fallback

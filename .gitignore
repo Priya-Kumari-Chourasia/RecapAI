@@ -1,12 +1,15 @@
 .env
+.streamlit/secrets.toml
+cookies.txt
 
 # Python
 __pycache__/
 *.pyc
 .venv/
+.pytest_cache/
 
 # Runtime-generated data
 downloads/
 uploads/
 vector_db/
-
+qdrant_data/

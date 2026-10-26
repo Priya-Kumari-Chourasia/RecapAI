@@ -1,0 +1,5 @@
+# Optional: offline transcription with OpenAI Whisper on your own machine.
+# Not needed for the hosted app (it uses Groq's Whisper API instead).
+-r requirements.txt
+openai-whisper>=20231117
+torch>=2.2.0
