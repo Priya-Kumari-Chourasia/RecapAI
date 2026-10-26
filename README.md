@@ -1,100 +1,152 @@
-# Recap AI
+# Recap AI — memory for every meeting you record
 
-Turn any video into a conversation. Paste a YouTube link or upload a file and
-get a clean transcript, an AI summary, extracted action items / decisions /
-open questions, and a chat you can ask anything about the video — grounded in
-its transcript via RAG.
+Most "AI video summarizers" forget a video the moment you close the tab. Recap AI
+keeps **every** meeting or lecture in a searchable workspace, answers questions
+**across all of them** with dated, timestamped sources, and **tracks action items
+from one meeting to the next**.
+
+I built it for my M.Tech thesis meetings: guidance comes fast, and replaying an
+hour of audio to find one comment isn't practical.
 
 ## Features
 
-- **Two input sources** — YouTube URL (downloaded via `yt-dlp`) or a local
-  audio/video file upload (`mp4`, `mp3`, `wav`, `m4a`, `webm`, `mov`).
-- **Two transcription engines**
-  - **English** — [OpenAI Whisper](https://github.com/openai/whisper), running locally.
-  - **Hinglish → English** — [Sarvam AI](https://www.sarvam.ai/)'s speech-to-text-translate API.
-- **AI-generated insights** (via [Groq](https://groq.com/), through LangChain) — title, summary,
-  action items (with owner/deadline), key decisions, and open questions.
-- **Chat with the video** — a retrieval-augmented chat (Chroma vector store +
-  HuggingFace sentence embeddings) that answers questions using only the
-  transcript.
-- **Streamlit UI** — process a video from the sidebar, browse results in
-  tabs, download the transcript/summary as text files.
+- **Three ways in:** record in the browser, upload audio/video, or paste a YouTube link.
+- **Timestamped transcription**
+  - **Whisper large-v3-turbo on Groq** (default): fast, no GPU, works when hosted.
+  - **Sarvam AI** for Hindi / Hinglish speech, translated to English.
+  - **Local Whisper** (optional, offline): `pip install -r requirements-local.txt`.
+- **Structured insights:** summary, plus action items (task / owner / deadline),
+  key decisions and open questions, extracted as Pydantic-validated JSON.
+- **Meeting memory:** every meeting is stored in **Qdrant** (Qdrant Cloud when
+  hosted, a local folder otherwise) with its date and per-chunk start/end times.
+- **Ask across meetings:** RAG over the whole workspace, or only the meetings you
+  pick. Answers cite their excerpts as `[1]`, `[2]`, and each source shows the
+  meeting, date and time, e.g. `Thesis sync · 03 Oct 2026 · 12:34`. When meetings
+  disagree, the newer one wins and the answer says what changed.
+- **Follow-up tracker:** when a new meeting is added, every open action item from
+  earlier meetings is checked against it. Per item, the most relevant moments of
+  the new meeting are retrieved and an LLM decides *done / in progress / not
+  mentioned*, quoting the evidence. Re-mentioned tasks aren't duplicated, and
+  statuses can be edited by hand in the Follow-ups tab.
+- **Projects:** keep each project's meetings separate (e.g. *Thesis*, *BrickMind*).
+  Meetings, chat and follow-ups are scoped to the selected project, so one
+  project's tasks are never matched against another's meetings. Turn on
+  *Search all projects* in Ask for questions like "what's due this week everywhere?".
+- **Private workspace key:** all projects live under a workspace key that works
+  like a password (it's hashed, and every query filters on it), so different
+  people using the hosted app never see each other's projects.
+- **YouTube on hosted servers:** YouTube blocks most cloud IPs. The app detects
+  this and tells the user to upload or record instead of failing with a stack trace.
 
-## Project structure
+## Architecture
 
 ```
-app.py                   Streamlit UI (main entry point)
-main.py                  CLI entry point — same pipeline, no UI
+record / upload / YouTube
+        │  pydub: 16 kHz mono, 10-min MP3 chunks (+ start offsets)
+        ▼
+transcriber.py ── Groq Whisper | Sarvam | local Whisper
+        │  segments [{start, end, text}] on the full-recording timeline
+        ▼
+summarizer.py (map-reduce)    extractor.py (JSON → Pydantic)
+        │
+        ▼
+vector_store.py ── Qdrant: recap_chunks (text + start/end) and recap_sources (meeting records)
+        │                  embeddings: fastembed BAAI/bge-small-en-v1.5 (ONNX, no PyTorch)
+        ├── tracker.py     carry action items forward across meetings
+        └── rag_engine.py  cross-meeting Q&A with [n] citations
+```
+
+```
+app.py              Streamlit UI (Add meeting · Meetings · Ask · Follow-ups)
+main.py             CLI: add / ask / list
 core/
-  transcriber.py         Whisper / Sarvam transcription
-  summarizer.py          Title + summary generation
-  extractor.py            Action items / key decisions / open questions
-  rag_engine.py           RAG chat chain (build + query)
-  vector_store.py         Chroma vector store + embeddings
+  pipeline.py       end-to-end processing of one recording
+  transcriber.py    timestamped speech-to-text (Groq / Sarvam / local Whisper)
+  summarizer.py     title + map-reduce summary
+  extractor.py      action items / decisions / questions as validated JSON
+  vector_store.py   Qdrant collections, chunking, workspace isolation
+  rag_engine.py     cross-meeting retrieval + cited answers
+  tracker.py        follow-up tracking across meetings
+  llm.py            Groq LLM wrapper (LangChain), JSON mode with repair retry
 utils/
-  audio_processor.py      YouTube download, format conversion, chunking
-  ffmpeg_path.py           Locates a local ffmpeg install for pydub/whisper
-downloads/                YouTube audio downloads (created at runtime)
-uploads/                  Uploaded files (created at runtime)
+  audio_processor.py  YouTube download (+ blocked-IP detection), conversion, chunking
+  llm_retry.py        retries Groq 429s using the server's retry-after
+tests/              offline tests (fake LLM + in-memory Qdrant), no API keys needed
 ```
 
 ## Setup
 
-**Requirements:** Python 3.10+, [FFmpeg](https://ffmpeg.org/) installed and
-on `PATH` (or discoverable via winget on Windows).
+**Requirements:** Python 3.10+ and [FFmpeg](https://ffmpeg.org/) on `PATH`.
 
 ```bash
 python -m venv .venv
-.venv\Scripts\activate          # Windows
+.venv\Scripts\activate            # Windows  (macOS/Linux: source .venv/bin/activate)
 pip install -r requirements.txt
 ```
 
-Create a `.env` file in the project root:
+Create `.env` in the project root:
 
 ```env
-GROQ_API_KEY=your_groq_api_key             # required — summary, extraction & chat
-SARVAM_API_KEY=your_sarvam_api_key         # required only for Hinglish transcription
-SARVAM_STT_MODEL=saaras:v2.5               # optional, defaults to saaras:v2.5
+GROQ_API_KEY=your_groq_api_key          # required: LLM + Whisper transcription
+SARVAM_API_KEY=your_sarvam_api_key      # optional: Hinglish transcription
+
+# Optional: Qdrant Cloud. Without these, meetings are stored in ./qdrant_data
+QDRANT_URL=https://xxxx.cloud.qdrant.io
+QDRANT_API_KEY=your_qdrant_api_key
+
+# Optional
+GROQ_MODEL=openai/gpt-oss-120b          # any Groq chat model
+DEFAULT_WORKSPACE=demo
 ```
+
+### Qdrant Cloud (needed for memory to survive restarts on Streamlit Cloud)
+
+1. Create a free cluster at [cloud.qdrant.io](https://cloud.qdrant.io).
+2. Copy the cluster URL and create an API key.
+3. Put them in `.env` locally, and in the Streamlit **Secrets** box when deployed.
+
+Collections and indexes are created automatically on first run.
 
 ## Running
 
-**Streamlit app (recommended):**
-
 ```bash
-streamlit run app.py
+streamlit run app.py          # web app
+python main.py add meeting.mp3 --project Thesis --title "Thesis sync" --date 2026-10-03
+python main.py ask --project Thesis   # omit --project to search every project
+python main.py list
+pytest -q                     # offline tests
 ```
 
-**CLI:**
-
-```bash
-python main.py
-```
+> Local Qdrant mode lets only one process open `./qdrant_data` at a time, so
+> close the Streamlit app before using the CLI (or use Qdrant Cloud).
 
 ## Deploying to Streamlit Community Cloud
 
-1. Push this repo to GitHub (already done if you're reading this from there).
-2. Go to [share.streamlit.io](https://share.streamlit.io) → **New app** → pick
-   this repo/branch and set the main file to `app.py`.
-3. Under **Advanced settings → Secrets**, add your keys in TOML form:
+1. **New app** → pick this repo and set the main file to `app.py`.
+2. **Advanced settings → Secrets** (top level, no `[section]` header):
    ```toml
-   GROQ_API_KEY = "your_groq_api_key"
-   SARVAM_API_KEY = "your_sarvam_api_key"
+   GROQ_API_KEY = "..."
+   SARVAM_API_KEY = "..."
+   QDRANT_URL = "https://xxxx.cloud.qdrant.io"
+   QDRANT_API_KEY = "..."
    ```
-4. Deploy. `packages.txt` (ffmpeg) and `requirements.txt` are picked up
-   automatically.
+3. Deploy. `packages.txt` installs ffmpeg.
 
-> **Note:** local Whisper transcription is CPU/RAM-heavy (it pulls in
-> PyTorch). On the free Community Cloud tier this can be slow or hit memory
-> limits — set `WHISPER_MODEL = "tiny"` or `"base"` in the app's secrets if
-> you run into that.
+### YouTube links on hosted servers
+
+YouTube blocks most datacenter IPs ("Sign in to confirm you're not a bot"), so
+links that work locally often fail on Streamlit Cloud. The app catches this and
+asks the user to upload or record instead. Optional workarounds:
+
+- `YTDLP_COOKIES`: the contents of a `cookies.txt` export, added as a secret.
+  Use a throwaway Google account, because accounts used this way can be banned,
+  and cookies expire.
+- `YTDLP_PROXY`: route downloads through a (residential) proxy.
 
 ## Notes
 
-- The local Whisper model size can be changed via the `WHISPER_MODEL` env var
-  (defaults to `small`).
-- Sarvam's sync API only accepts clips ≤30s, so Hinglish audio is
-  automatically sliced into 25s pieces before being sent.
-- The vector store is in-memory and isolated: each browser session has its
-  own Chroma collection, and processing a new video replaces that session's
-  previous one, so chat never retrieves chunks from another video or user.
+- Groq's free tier limits tokens per minute; the app waits for the time Groq
+  asks for (`retry-after`) and retries. For very long recordings, a smaller
+  model such as `llama-3.1-8b-instant` (`GROQ_MODEL`) has higher limits.
+- Sarvam's sync API accepts ≤30 s clips, so Hinglish audio is sent in 25 s
+  pieces, which also gives 25 s timestamp resolution.

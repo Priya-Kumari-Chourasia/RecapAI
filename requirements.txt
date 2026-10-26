@@ -1,51 +1,30 @@
-# ── AI Meeting Assistant ── requirements.txt ──────────────────────────────────
-# Python >= 3.10 recommended
+# Recap AI — Python >= 3.10
+# Lightweight on purpose: no PyTorch, so it deploys comfortably on Streamlit Community Cloud.
+# For offline local Whisper, also install requirements-local.txt.
 
-# ── Audio / Video acquisition ─────────────────────────────────────────────────
-yt-dlp[default,deno]>=2026.8.0                  # Download audio from YouTube URLs
-pydub>=0.25.1                     # Audio file manipulation / format conversion
-ffmpeg-python>=0.2.0              # FFmpeg bindings (FFmpeg binary must be installed separately)
-audioop-lts>=0.2.1; python_version>="3.13"  # Backport of stdlib audioop, removed in Python 3.13 (pydub dependency)
+# ── Audio / video ─────────────────────────────────────────────────────────────
+yt-dlp[default,deno]>=2026.8.0    # YouTube download (works locally; often blocked on cloud hosts)
+pydub>=0.25.1                     # Audio conversion / chunking (needs the ffmpeg binary)
+audioop-lts>=0.2.1; python_version>="3.13"  # stdlib audioop backport needed by pydub
 
-# ── Speech-to-Text (local Whisper) ────────────────────────────────────────────
-openai-whisper>=20231117          # OpenAI Whisper (runs locally)
-torch>=2.2.0                      # PyTorch backend for Whisper
-torchaudio>=2.2.0                 # Audio utilities for PyTorch
-torchvision>=0.21.0
+# ── Speech-to-text ───────────────────────────────────────────────────────────
+groq>=0.13.0                      # Whisper large-v3-turbo via Groq API (default engine)
+requests>=2.32.0                  # Sarvam AI API (Hinglish -> English)
 
-# ── Translation (Hindi → English) ─────────────────────────────────────────────
-deep-translator>=1.11.4           # Lightweight translation wrapper (Google backend)
-
-# ── LLM Orchestration — LangChain LCEL + Groq ─────────────────────────────────
-langchain>=0.2.0
-langchain-core>=0.2.0
-langchain-community>=0.2.0
+# ── LLM orchestration ────────────────────────────────────────────────────────
+langchain-core>=0.3.0
 langchain-groq>=0.2.0
-groq>=0.13.0
+langchain-text-splitters>=0.3.0
+pydantic>=2.7
 
-# ── RAG Pipeline ──────────────────────────────────────────────────────────────
-chromadb>=0.5.0                   # Local vector store
-langchain-chroma>=0.1.4           # LangChain ↔ Chroma bridge (was used but missing here)
-sentence-transformers>=3.0.0      # HuggingFace embedding models
-langchain-huggingface>=0.0.3      # LangChain ↔ HuggingFace embeddings bridge
-huggingface-hub>=0.23.0           # Model downloading from HuggingFace Hub
-tiktoken>=0.7.0                   # Token counting for text splitting
+# ── Meeting memory (vector store + embeddings) ────────────────────────────────
+qdrant-client>=1.12.0             # Qdrant Cloud, or local on-disk mode
+fastembed>=0.4.0                  # ONNX embeddings (BAAI/bge-small-en-v1.5), no PyTorch
 
-# ── Multi-day course orchestration (Course/Lecture-Session pipeline) ──────────
-langgraph>=0.2.0                  # Supervisor/guardrail/HITL state machine
-langgraph-checkpoint-sqlite>=1.0.0 # Checkpointer backing the human-review pause/resume
+# ── UI / utils ────────────────────────────────────────────────────────────────
+streamlit>=1.50.0                 # st.audio_input recording, width="stretch"
+python-dotenv>=1.0.0
+watchdog>=4.0.0
 
-# ── Streamlit UI ──────────────────────────────────────────────────────────────
-streamlit>=1.35.0
-streamlit-extras>=0.4.0           # Additional Streamlit widgets / utilities
-watchdog>=4.0.0                   # File-change watcher (improves Streamlit hot-reload)
-
-# ── PDF & TXT Export ──────────────────────────────────────────────────────────
-reportlab>=4.2.0                  # PDF generation
-fpdf2>=2.7.9                      # Lightweight alternative PDF library
-
-# ── Utilities ─────────────────────────────────────────────────────────────────
-python-dotenv>=1.0.0              # Load API keys from .env
-numpy>=1.26.0
-tqdm>=4.66.0                      # Progress bars
-requests>=2.32.0
+# ── Tests ─────────────────────────────────────────────────────────────────────
+pytest>=8.0
