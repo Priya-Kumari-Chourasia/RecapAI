@@ -44,10 +44,18 @@ class FakeLLM:
         self.tracker_reply = None
         self.title_reply = '"Thesis Sync"'
         self.extract_reply = None
+        self.factcheck_reply = None  # None: mark every claim supported by passage 1
 
     def __call__(self, prompt_value):
         system, human = (m.content for m in prompt_value.to_messages())
         self.calls.append((system, human))
+        if "strict fact-checker" in system:
+            if self.factcheck_reply is not None:
+                return AIMessage(content=json.dumps(self.factcheck_reply))
+            n_claims = len(re.findall(r"(?m)^CLAIM \d+:", human))
+            return AIMessage(content=json.dumps({"verdicts": [
+                {"claim": i, "status": "supported", "evidence": "quote", "passage": 1} for i in range(1, n_claims + 1)
+            ]}))
         if "track action items" in system:
             return AIMessage(content=json.dumps(self.tracker_reply or {"updates": []}))
         if "meeting analyst" in system and self.extract_reply is not None:

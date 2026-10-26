@@ -29,7 +29,7 @@ try:
 except Exception as _e:  # noqa: BLE001 - no secrets file locally is normal
     _secrets_error = str(_e)
 
-from core import rag_engine, tracker, vector_store  # noqa: E402
+from core import factcheck, rag_engine, tracker, vector_store  # noqa: E402
 from core.documents import NoTextInPdfError, process_pdf  # noqa: E402
 from core.pipeline import process_recording  # noqa: E402
 from core.transcriber import ENGINES, engine_ready, format_timestamp, segments_to_timestamped_text  # noqa: E402
@@ -122,6 +122,17 @@ st.markdown(
     div[data-testid="stTabs"] button[role="tab"] { font-weight: 600; font-size: 0.92rem; }
     div[data-testid="stTabs"] button[aria-selected="true"] { color: var(--accent) !important; }
     div[data-baseweb="tab-highlight"] { background-color: var(--accent) !important; }
+    .fc-score { font-size: 0.92rem; color: var(--ink); margin-bottom: 0.7rem; }
+    .fc-pct {
+        float: right; padding: 0.15rem 0.6rem; border-radius: 999px; font-size: 0.78rem; font-weight: 700;
+        background: var(--accent-soft); color: var(--accent-dark);
+    }
+    .fc-claim { display: flex; gap: 0.6rem; padding: 0.45rem 0; border-top: 1px solid var(--border); }
+    .fc-icon { flex-shrink: 0; width: 1.3rem; }
+    .fc-evidence { font-size: 0.82rem; color: var(--muted); margin-top: 0.2rem; font-style: italic; }
+    .fc-evidence span { font-style: normal; font-weight: 600; }
+    .fc-note { font-size: 0.8rem; color: var(--warn); margin-top: 0.15rem; }
+    .fc-unsupported > div > div:first-child { color: var(--danger); }
     .project-pill {
         display: inline-block; padding: 0.25rem 0.8rem; border-radius: 999px; margin-bottom: 0.8rem;
         background: var(--accent-soft); color: var(--accent-dark); font-size: 0.8rem; font-weight: 700;
@@ -150,6 +161,65 @@ def status_badge(status: str) -> str:
     return f'<span class="status status-{status}">{STATUS_LABEL.get(status, status)}</span>'
 
 
+def where_label(c: dict) -> str:
+    if c.get("page"):
+        return f"p. {c['page']}"
+    return format_timestamp(c["start"]) if c.get("start") is not None else ""
+
+
+def fact_check_score_line(report: dict) -> str:
+    sc = report["score"]
+    if not sc["total"]:
+        return "🔍 Nothing to check."
+    parts = [f"<b>{sc['supported']}/{sc['total']}</b> points verified"]
+    if sc["partial"]:
+        parts.append(f"⚠️ {sc['partial']} partly")
+    if sc["unsupported"]:
+        parts.append(f"❌ {sc['unsupported']} not found in the source")
+    return (f"<div class='fc-score'>🔍 Fact-check: {' · '.join(parts)}"
+            f"<span class='fc-pct'>{round(100 * sc['faithfulness'])}% faithful</span></div>")
+
+
+def render_fact_check(report: dict, show_title: bool = False) -> None:
+    """Each claim with ✅/⚠️/❌, the supporting quote and where it was said (time or page)."""
+    st.markdown(fact_check_score_line(report), unsafe_allow_html=True)
+    for c in report["claims"]:
+        detail = ""
+        if c.get("evidence"):
+            where = where_label(c)
+            src = f"{esc(c['title'])} · " if show_title and c.get("title") else ""
+            detail += f"<div class='fc-evidence'>“{esc(c['evidence'])}” <span>— {src}{where}</span></div>"
+        if c.get("note") and c["status"] != "supported":
+            detail += f"<div class='fc-note'>{esc(c['note'])}</div>"
+        st.markdown(
+            f"<div class='fc-claim fc-{c['status']}'><span class='fc-icon'>{factcheck.STATUS_ICON[c['status']]}</span>"
+            f"<div><div>{esc(c['claim'])}</div>{detail}</div></div>",
+            unsafe_allow_html=True,
+        )
+
+
+def summary_view(m: dict, key: str) -> None:
+    """Fact-checked summary if available; otherwise the plain summary with a button to check it."""
+    report = m.get("fact_check")
+    with st.container(border=True):
+        if report:
+            render_fact_check(report)
+        else:
+            st.markdown(m["summary"])
+    if not report:
+        st.caption("This summary hasn't been fact-checked yet.")
+    label = "🔍 Fact-check this summary" if not report else "🔁 Re-check"
+    if st.button(label, key=f"fc_{key}", type="secondary" if report else "primary", disabled=not groq_ok):
+        with st.spinner("Checking every point against the source…"):
+            try:
+                factcheck.check_source_summary(WS, m)
+            except Exception as err:  # noqa: BLE001
+                st.error(f"Fact-check failed: {err}")
+            else:
+                st.session_state.pop("last_result", None)
+                st.rerun()
+
+
 def slugify(text: str) -> str:
     text = re.sub(r"[^\w\s-]", "", text or "").strip().lower()
     return re.sub(r"[\s_-]+", "-", text)[:60] or "meeting"
@@ -164,7 +234,18 @@ def nice_date(iso: str) -> str:
 
 def meeting_report(m: dict) -> str:
     lines = [f"# {m['title']}", f"_{nice_date(m['date'])} · {format_timestamp(m.get('duration', 0))}_", "",
-             "## Summary", m.get("summary", ""), "", "## Action items"]
+             "## Summary", m.get("summary", ""), ""]
+    if m.get("fact_check"):
+        sc = m["fact_check"]["score"]
+        lines += [f"## Fact-check: {sc['supported']}/{sc['total']} points verified "
+                  f"({round(100 * (sc['faithfulness'] or 0))}% faithful)"]
+        for c in m["fact_check"]["claims"]:
+            where = f" — {format_timestamp(c['start'])}" if c.get("start") is not None else ""
+            lines.append(f"- {factcheck.STATUS_ICON[c['status']]} {c['claim']}"
+                         + (f"  \n  > “{c['evidence']}”{where}" if c.get("evidence") else "")
+                         + (f"  \n  _{c['note']}_" if c.get("note") and c["status"] != "supported" else ""))
+        lines.append("")
+    lines += ["## Action items"]
     for a in m.get("action_items", []):
         lines.append(f"- [{'x' if a['status'] == 'done' else ' '}] {a['task']} — {a['owner']} (deadline: {a['deadline']})")
     lines += ["", "## Key decisions", *[f"- {d}" for d in m.get("key_decisions", [])],
@@ -474,14 +555,20 @@ with tab_add:
         with st.container(border=True):
             st.markdown(f"#### 📄 Added: {d['title']}")
             st.caption(f"{d['page_count']} pages · {d['word_count']} words — ask about it in the **Ask** tab.")
-            st.markdown(d["summary"])
+            if d.get("fact_check"):
+                render_fact_check(d["fact_check"])
+            else:
+                st.markdown(d["summary"])
 
     last = st.session_state.get("last_result")
     if last:
         m = last["meeting"]
         with st.container(border=True):
             st.markdown(f"#### ✅ Saved: {m['title']}")
-            st.markdown(m["summary"])
+            if m.get("fact_check"):
+                render_fact_check(m["fact_check"])
+            else:
+                st.markdown(m["summary"])
             st.caption(
                 f"{len(m['action_items'])} new action items · {len(m['key_decisions'])} decisions · "
                 f"{len(m['open_questions'])} open questions — open the **Library** tab for details."
@@ -524,8 +611,7 @@ with tab_meetings:
             f'<span class="meta-chip">🗂️ {esc(m.get("origin_ref", ""))}</span>',
             unsafe_allow_html=True,
         )
-        with st.container(border=True):
-            st.markdown(m["summary"])
+        summary_view(m, key=f"pdf_{chosen}")
         c1, c2, _ = st.columns([2, 2, 4])
         c1.download_button(
             "⬇️ Download summary (.md)", f"# {m['title']}\n\n{m['summary']}\n",
@@ -554,8 +640,7 @@ with tab_meetings:
             ["📋 Summary", "✅ Action items", "🔑 Decisions", "❓ Open questions", "📝 Transcript"]
         )
         with t_sum:
-            with st.container(border=True):
-                st.markdown(m["summary"])
+            summary_view(m, key=f"meeting_{chosen}")
         with t_act:
             if not m["action_items"]:
                 st.caption("No action items in this meeting.")
@@ -631,9 +716,21 @@ with tab_ask:
                 if col.button(s, width="stretch", key=f"sugg_{s}"):
                     st.session_state.pending_question = s
 
-        for msg in history:
+        for i, msg in enumerate(history):
             with st.chat_message(msg["role"]):
                 st.markdown(msg["content"])
+                if msg.get("check"):
+                    with st.container(border=True):
+                        render_fact_check(msg["check"], show_title=True)
+                elif msg["role"] == "assistant" and msg.get("context"):
+                    if st.button("🔍 Check this answer", key=f"check_{history_key}_{i}", disabled=not groq_ok):
+                        with st.spinner("Checking each statement against the excerpts…"):
+                            try:
+                                msg["check"] = factcheck.check_answer(WS, msg["content"], msg["context"])
+                            except Exception as err:  # noqa: BLE001
+                                st.error(f"Check failed: {err}")
+                            else:
+                                st.rerun()
                 if msg.get("sources"):
                     with st.expander(f"Sources ({len(msg['sources'])})"):
                         for s in msg["sources"]:
@@ -655,7 +752,10 @@ with tab_ask:
                 except Exception as err:  # noqa: BLE001
                     result = {"answer": f"⚠️ Something went wrong: {err}", "sources": []}
             history.append({"role": "user", "content": question})
-            history.append({"role": "assistant", "content": result["answer"], "sources": result["sources"]})
+            history.append({
+                "role": "assistant", "content": result["answer"],
+                "sources": result["sources"], "context": result.get("context", []),
+            })
             st.rerun()
 
 # ---- Follow-ups -------------------------------------------------------------------
