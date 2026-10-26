@@ -275,3 +275,11 @@ def test_llm_flags_reassigned_task_as_duplicate_but_keeps_different_task(fake_ll
     assert kept == ["Run ablation on dataset B"]  # re-assignment dropped, the new dataset-B task kept
     tracker_prompt = next(h for sys_, h in reversed(fake_llm.calls) if "track action items" in sys_)
     assert "NEW ITEM 1: Priya to continue the dataset A ablation" in tracker_prompt
+
+
+def test_summary_prompt_forbids_padding_short_recordings(fake_llm, memory):
+    # Real run: a one-sentence recording got an invented 4th bullet because the prompt asked for 4-8.
+    build_meeting(segs("Please finish the literature review by Friday."), workspace="w", engine="groq",
+                  progress=lambda *_: None)
+    system = next(sys_ for sys_, _ in fake_llm.calls if "final summary" in sys_)
+    assert "4-8" not in system and "never add background" in system

@@ -1,5 +1,5 @@
 from core import factcheck, rag_engine, vector_store
-from tests.test_memory import MEETING_1, MEETING_2, add_to, segs
+from tests.test_memory import MEETING_1, MEETING_2, add_to
 
 
 def test_split_claims_from_bullets_and_prose():
@@ -13,7 +13,7 @@ def test_split_claims_from_bullets_and_prose():
 
 def test_summary_is_checked_against_its_own_meeting_only(fake_llm, memory):
     ws = vector_store.workspace_id("me")
-    other = add_to(ws, "Thesis", MEETING_2, "2026-10-08")["meeting"]
+    add_to(ws, "Thesis", MEETING_2, "2026-10-08")  # a second meeting whose text must not be used
     meeting = add_to(ws, "Thesis", MEETING_1, "2026-10-01")["meeting"]
     meeting["summary"] = (
         "- We chose Bonsai as the baseline for the label tree\n"
@@ -96,3 +96,44 @@ def test_evaluation_script_reports_overall_faithfulness(fake_llm, memory, tmp_pa
     faithfulness.print_report(rows, overall, claims, out=buf)
     text = buf.getvalue()
     assert "OVERALL" in text and "50.0%" in text and "invented" in text
+
+
+def test_demo_project_is_consistent(memory):
+    from core import sample_data
+
+    ws = vector_store.workspace_id(sample_data.DEMO_KEY)
+    assert sample_data.ensure_demo_project(ws) == sample_data.DEMO_PROJECT
+    assert sample_data.ensure_demo_project(ws) == sample_data.DEMO_PROJECT  # idempotent
+    meetings = vector_store.list_sources(ws, project=sample_data.DEMO_PROJECT)
+    assert len(meetings) == 2
+    for m in meetings:
+        full = vector_store.get_source(ws, m["source_id"])
+        transcript = " ".join(s["text"] for s in full["segments"])
+        claims = full["fact_check"]["claims"]
+        assert len(claims) == len(factcheck.split_claims(full["summary"]))
+        for c in claims:  # every quoted piece of evidence really is in the transcript, at the stated time
+            if c["evidence"]:
+                assert c["evidence"] in transcript
+                seg = next(s for s in full["segments"] if c["evidence"] in s["text"])
+                assert seg["start"] == c["start"]
+    first = next(m for m in meetings if m["date"] == "2026-10-01")
+    assert {a["status"] for a in first["action_items"]} == {"done", "in_progress"}
+    assert vector_store.search(ws, "branching factor", project=sample_data.DEMO_PROJECT)
+
+
+
+def test_demo_uses_no_real_names_and_replaces_old_versions(memory):
+    from core import sample_data
+
+    ws = vector_store.workspace_id("demo")
+    sample_data.ensure_demo_project(ws)
+    for m in vector_store.list_sources(ws, project=sample_data.DEMO_PROJECT):
+        text = str(vector_store.get_source(ws, m["source_id"]))
+        assert "Priya" not in text and "Verma" not in text
+
+    # an outdated copy (e.g. seeded before a content change) is replaced, not kept
+    old = vector_store.list_sources(ws, project=sample_data.DEMO_PROJECT)[0]
+    vector_store.update_source(ws, old["source_id"], {"sample_version": 1, "title": "old copy"})
+    sample_data.ensure_demo_project(ws)
+    titles = [m["title"] for m in vector_store.list_sources(ws, project=sample_data.DEMO_PROJECT)]
+    assert "old copy" not in titles and len(titles) == 2

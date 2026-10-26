@@ -33,8 +33,10 @@ def summarize(transcript: str) -> str:
             for c in chunks
         ]
     return complete(
-        f"{CONTEXT}\nWrite the final summary as 4-8 markdown bullet points. Lead with the most important "
-        "point. Keep names, numbers, deadlines and technical terms exact. Do not invent anything. "
+        f"{CONTEXT}\nWrite the final summary as markdown bullet points: as many as the content needs and "
+        "no more (at most 8; a recording of one or two sentences needs one or two bullets). Lead with the "
+        "most important point. Keep names, numbers, deadlines and technical terms exact. Only state what "
+        "is in the text: never add background, context or conclusions to fill space. "
         "If it is not a meeting (e.g. a lecture or a song), summarize what it covers.",
         "\n\n".join(partials),
     )
