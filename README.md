@@ -28,6 +28,11 @@ hour of audio to find one comment isn't practical.
   the new meeting are retrieved and an LLM decides *done / in progress / not
   mentioned*, quoting the evidence. Re-mentioned tasks aren't duplicated, and
   statuses can be edited by hand in the Follow-ups tab.
+- **PDF chat:** add papers, slides or notes (several at once) to a project. Text is
+  extracted page by page and stored next to the meeting transcripts, so one
+  question is answered from both, with sources like `Bonsai paper · p. 4` next to
+  `Thesis sync · 03 Oct 2026 · 12:34`. If a paper and a meeting disagree, the
+  answer reports both. Scanned PDFs without a text layer get a clear message.
 - **Projects:** keep each project's meetings separate (e.g. *Thesis*, *BrickMind*).
   Meetings, chat and follow-ups are scoped to the selected project, so one
   project's tasks are never matched against another's meetings. Turn on
@@ -53,17 +58,19 @@ summarizer.py (map-reduce)    extractor.py (JSON → Pydantic)
 vector_store.py ── Qdrant: recap_chunks (text + start/end) and recap_sources (meeting records)
         │                  embeddings: fastembed BAAI/bge-small-en-v1.5 (ONNX, no PyTorch)
         ├── tracker.py     carry action items forward across meetings
-        └── rag_engine.py  cross-meeting Q&A with [n] citations
+        └── rag_engine.py  Q&A across meetings + PDFs with [n] citations
+PDF ── documents.py ── pypdf page text → page-tagged chunks ──┘
 ```
 
 ```
-app.py              Streamlit UI (Add meeting · Meetings · Ask · Follow-ups)
+app.py              Streamlit UI (Add · Library · Ask · Follow-ups)
 main.py             CLI: add / ask / list
 core/
   pipeline.py       end-to-end processing of one recording
   transcriber.py    timestamped speech-to-text (Groq / Sarvam / local Whisper)
   summarizer.py     title + map-reduce summary
   extractor.py      action items / decisions / questions as validated JSON
+  documents.py      PDF upload: page extraction, page-tagged chunks, summary
   vector_store.py   Qdrant collections, chunking, workspace isolation
   rag_engine.py     cross-meeting retrieval + cited answers
   tracker.py        follow-up tracking across meetings
@@ -112,6 +119,7 @@ Collections and indexes are created automatically on first run.
 ```bash
 streamlit run app.py          # web app
 python main.py add meeting.mp3 --project Thesis --title "Thesis sync" --date 2026-10-03
+python main.py add-pdf bonsai.pdf --project Thesis
 python main.py ask --project Thesis   # omit --project to search every project
 python main.py list
 pytest -q                     # offline tests

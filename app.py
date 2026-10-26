@@ -30,6 +30,7 @@ except Exception as _e:  # noqa: BLE001 - no secrets file locally is normal
     _secrets_error = str(_e)
 
 from core import rag_engine, tracker, vector_store  # noqa: E402
+from core.documents import NoTextInPdfError, process_pdf  # noqa: E402
 from core.pipeline import process_recording  # noqa: E402
 from core.transcriber import ENGINES, engine_ready, format_timestamp, segments_to_timestamped_text  # noqa: E402
 from utils.audio_processor import YouTubeBlockedError  # noqa: E402
@@ -86,9 +87,9 @@ st.markdown(
         background: var(--accent-soft); color: var(--accent-dark); font-size: 0.8rem; font-weight: 600;
         margin: 0 0.4rem 0.5rem 0;
     }
-    .stat-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; }
+    .stat-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.4rem; }
     .stat {
-        background: #fff; border: 1px solid var(--border); border-radius: 12px; padding: 0.65rem 0.8rem;
+        background: #fff; border: 1px solid var(--border); border-radius: 12px; padding: 0.55rem 0.6rem;
     }
     .stat b { display: block; font-size: 1.25rem; color: var(--ink); }
     .stat span { font-size: 0.72rem; color: var(--muted); }
@@ -121,6 +122,10 @@ st.markdown(
     div[data-testid="stTabs"] button[role="tab"] { font-weight: 600; font-size: 0.92rem; }
     div[data-testid="stTabs"] button[aria-selected="true"] { color: var(--accent) !important; }
     div[data-baseweb="tab-highlight"] { background-color: var(--accent) !important; }
+    .project-pill {
+        display: inline-block; padding: 0.25rem 0.8rem; border-radius: 999px; margin-bottom: 0.8rem;
+        background: var(--accent-soft); color: var(--accent-dark); font-size: 0.8rem; font-weight: 700;
+    }
     .source-line { font-size: 0.84rem; color: var(--muted); margin-bottom: 0.35rem; }
     .source-line b { color: var(--ink); }
     </style>
@@ -270,6 +275,15 @@ with project_box:
 
 sources = vector_store.list_sources(WS, project=PROJECT)
 meetings = [s for s in sources if s.get("source_type") == "meeting"]
+docs = [s for s in sources if s.get("source_type") == "pdf"]
+ICON = {"meeting": "🎙️", "pdf": "📄"}
+
+
+def source_label(i: str) -> str:
+    src = next(x for x in sources if x["source_id"] == i)
+    return f"{ICON.get(src.get('source_type'), '')} {src['title']} — {nice_date(src['date'])}"
+
+
 all_items = [(m, a) for m in meetings for a in m.get("action_items", [])]
 open_count = sum(1 for _, a in all_items if a["status"] != "done")
 
@@ -277,17 +291,18 @@ with stats_box:
     st.markdown(
         f"""<div class="stat-grid">
             <div class="stat"><b>{len(meetings)}</b><span>meetings</span></div>
-            <div class="stat"><b>{open_count}</b><span>open action items</span></div>
+            <div class="stat"><b>{len(docs)}</b><span>PDFs</span></div>
+            <div class="stat"><b>{open_count}</b><span>open tasks</span></div>
         </div>""",
         unsafe_allow_html=True,
     )
-    if meetings:
+    if sources:
         st.markdown('<div class="sidebar-section-label">Recent</div>', unsafe_allow_html=True)
-        for m in meetings[:5]:
-            st.caption(f"**{m['title']}** · {nice_date(m['date'])}")
+        for m in sources[:5]:
+            st.caption(f"{ICON.get(m.get('source_type'), '')} **{m['title']}** · {nice_date(m['date'])}")
     if PROJECT != vector_store.DEFAULT_PROJECT:
         with st.popover(f"🗑️ Delete “{PROJECT}”", width="stretch"):
-            st.write(f"This permanently deletes **{PROJECT}** and its {len(meetings)} meeting(s).")
+            st.write(f"This permanently deletes **{PROJECT}**, its {len(meetings)} meeting(s) and {len(docs)} document(s).")
             if st.button("Yes, delete project", type="primary"):
                 vector_store.delete_project(WS, PROJECT)
                 st.session_state.switch_to_project = vector_store.DEFAULT_PROJECT
@@ -296,29 +311,30 @@ with stats_box:
 # ---------------------------------------------------------------------------- tabs
 
 tab_add, tab_meetings, tab_ask, tab_follow = st.tabs(
-    ["➕ Add meeting", f"📚 Meetings ({len(meetings)})", "💬 Ask", f"✅ Follow-ups ({open_count})"]
+    ["➕ Add", f"📚 Library ({len(sources)})", "💬 Ask", f"✅ Follow-ups ({open_count})"]
 )
 
 # ---- Add meeting ------------------------------------------------------------
 
 with tab_add:
-    if not meetings:
+    if not sources:
         st.markdown(
-            """
+            f"""
             <div class="empty-hero">
+                <div class="project-pill">Project: {esc(PROJECT)}</div>
                 <div class="emoji">🧠</div>
                 <h1>Never lose what was said in a meeting</h1>
-                <p>Record or upload your meetings and lectures. Recap AI transcribes them, pulls out
-                action items and decisions, remembers <b>every</b> meeting in your workspace, and tracks
-                whether each task got done in later meetings.</p>
+                <p>Record or upload your meetings and lectures, and add papers or slides as PDFs.
+                Recap AI transcribes them, pulls out action items and decisions, remembers <b>everything</b>
+                in this project, and tracks whether each task got done in later meetings.</p>
             </div>
             """,
             unsafe_allow_html=True,
         )
         cols = st.columns(3)
         for col, (icon, title, desc) in zip(cols, [
-            ("🎙️", "Record or upload", "Record in the browser, upload audio/video, or paste a YouTube link."),
-            ("💬", "Ask across meetings", "“What did we decide about the baseline?” — answered from all meetings, with dates."),
+            ("🎙️", "Meetings & PDFs", "Record in the browser, upload audio/video, paste a YouTube link, or add PDFs."),
+            ("💬", "Ask across everything", "“What did we decide about the baseline?” — answered from meetings and PDFs, with sources."),
             ("🔁", "Follow-ups tracked", "Each new meeting checks earlier action items and marks them done or in progress."),
         ]):
             col.markdown(
@@ -330,10 +346,15 @@ with tab_add:
 
     with st.container(border=True):
         source_type = st.segmented_control(
-            "Source", ["Upload file", "Record", "YouTube URL"], default="Upload file", required=True
+            "Source", ["Upload file", "Record", "YouTube URL", "PDF document"], default="Upload file", required=True
         )
-        source, origin = None, None
-        if source_type == "Upload file":
+        is_pdf = source_type == "PDF document"
+        source, origin, pdf_files = None, None, []
+        if is_pdf:
+            pdf_files = st.file_uploader(
+                "PDF files (papers, slides, notes)", type=["pdf"], accept_multiple_files=True
+            ) or []
+        elif source_type == "Upload file":
             uploaded = st.file_uploader(
                 "Audio or video file", type=["mp4", "mp3", "wav", "m4a", "webm", "mov", "ogg", "flac"]
             )
@@ -357,31 +378,72 @@ with tab_add:
                 "often blocked by YouTube; if that happens, upload the file instead."
             )
 
-        c1, c2, c3 = st.columns([3, 2, 3])
-        title = c1.text_input("Title (optional)", placeholder="Generated automatically if left empty")
-        meeting_date = c2.date_input("Meeting date", value=date.today(), max_value=date.today())
-        engine_options = [e for e in ENGINES if engine_ready(e)[0] or e != "local"]
-        engine = c3.selectbox(
-            "Transcription",
-            engine_options,
-            format_func=lambda e: ENGINES[e] + ("" if engine_ready(e)[0] else f" — {engine_ready(e)[1]}"),
-        )
-        engine_ok = engine_ready(engine)[0]
-        vocabulary = st.text_input(
-            "Names & terms (optional)",
-            placeholder="e.g. Bonsai, XMC, pre-training, Dr. Verma",
-            help="Comma-separated names and technical words. Whisper uses them to spell jargon correctly "
-            "(e.g. 'pre-training' instead of 'free training'). Not used by Sarvam.",
-        )
+        if is_pdf:
+            c1, c2 = st.columns([3, 2])
+            title = c1.text_input(
+                "Title (optional)", placeholder="From the PDF or its file name",
+                disabled=len(pdf_files) > 1, help="Only for a single PDF; with several, each keeps its own title.",
+            )
+            meeting_date = c2.date_input("Date", value=date.today(), max_value=date.today())
+            engine, engine_ok, vocabulary = None, True, None
+            process_clicked = st.button(
+                f"📄 Add {len(pdf_files) or ''} PDF{'s' if len(pdf_files) > 1 else ''} to “{PROJECT}”",
+                type="primary", width="stretch", disabled=not (pdf_files and groq_ok),
+            )
+        else:
+            c1, c2, c3 = st.columns([3, 2, 3])
+            title = c1.text_input("Title (optional)", placeholder="Generated automatically if left empty")
+            meeting_date = c2.date_input("Meeting date", value=date.today(), max_value=date.today())
+            engine_options = [e for e in ENGINES if engine_ready(e)[0] or e != "local"]
+            engine = c3.selectbox(
+                "Transcription",
+                engine_options,
+                format_func=lambda e: ENGINES[e] + ("" if engine_ready(e)[0] else f" — {engine_ready(e)[1]}"),
+            )
+            engine_ok = engine_ready(engine)[0]
+            vocabulary = st.text_input(
+                "Names & terms (optional)",
+                placeholder="e.g. Bonsai, XMC, pre-training, Dr. Verma",
+                help="Comma-separated names and technical words. Whisper uses them to spell jargon correctly "
+                "(e.g. 'pre-training' instead of 'free training'). Not used by Sarvam.",
+            )
+            process_clicked = st.button(
+                f"🚀 Process & save to “{PROJECT}”",
+                type="primary",
+                width="stretch",
+                disabled=not (source and engine_ok and groq_ok),
+            )
 
-        process_clicked = st.button(
-            f"🚀 Process & save to “{PROJECT}”",
-            type="primary",
-            width="stretch",
-            disabled=not (source and engine_ok and groq_ok),
-        )
+    if process_clicked and is_pdf and pdf_files:
+        added, failed = [], []
+        with st.status(f"Adding {len(pdf_files)} PDF(s)…", expanded=True) as status:
+            for f in pdf_files:
+                path = os.path.join(UPLOAD_DIR, os.path.basename(f.name))
+                with open(path, "wb") as out_file:
+                    out_file.write(f.getbuffer())
+                try:
+                    added.append(process_pdf(
+                        path, WS, project=PROJECT, title=(title or None) if len(pdf_files) == 1 else None,
+                        doc_date=meeting_date.isoformat(), progress=lambda msg, n=f.name: status.write(f"{n}: {msg}"),
+                    ))
+                except NoTextInPdfError as err:
+                    failed.append((f.name, str(err)))
+                except Exception as err:  # noqa: BLE001
+                    failed.append((f.name, f"Something went wrong: {err}"))
+            status.update(
+                label=f"Added {len(added)} PDF(s)" + (f", {len(failed)} failed" if failed else ""),
+                state="error" if failed and not added else "complete", expanded=bool(failed),
+            )
+        for name, msg in failed:
+            st.warning(f"**{name}** — {msg}", icon="📄")
+        if added:
+            st.session_state.last_docs = added
+            st.session_state.pop("last_result", None)
+            st.session_state.selected_meeting = added[-1]["source_id"]
+            if not failed:
+                st.rerun()
 
-    if process_clicked and source:
+    if process_clicked and not is_pdf and source:
         with st.status("Processing…", expanded=True) as status:
             try:
                 out = process_recording(
@@ -396,6 +458,7 @@ with tab_add:
                     progress=status.write,
                 )
                 st.session_state.last_result = out
+                st.session_state.pop("last_docs", None)
                 st.session_state.selected_meeting = out["meeting"]["source_id"]
                 status.update(label="Saved to your meeting memory", state="complete", expanded=False)
             except YouTubeBlockedError as err:
@@ -407,6 +470,12 @@ with tab_add:
             else:
                 st.rerun()
 
+    for d in st.session_state.get("last_docs", []):
+        with st.container(border=True):
+            st.markdown(f"#### 📄 Added: {d['title']}")
+            st.caption(f"{d['page_count']} pages · {d['word_count']} words — ask about it in the **Ask** tab.")
+            st.markdown(d["summary"])
+
     last = st.session_state.get("last_result")
     if last:
         m = last["meeting"]
@@ -415,7 +484,7 @@ with tab_add:
             st.markdown(m["summary"])
             st.caption(
                 f"{len(m['action_items'])} new action items · {len(m['key_decisions'])} decisions · "
-                f"{len(m['open_questions'])} open questions — open the **Meetings** tab for details."
+                f"{len(m['open_questions'])} open questions — open the **Library** tab for details."
             )
             if last["followups"]:
                 st.markdown(f"**🔁 Updated {len(last['followups'])} action item(s) from earlier meetings**")
@@ -430,20 +499,46 @@ with tab_add:
 # ---- Meetings -----------------------------------------------------------------
 
 with tab_meetings:
-    if not meetings:
-        st.info(f"No meetings in **{PROJECT}** yet. Add one in the **Add meeting** tab.")
+    chosen, m = None, None
+    if not sources:
+        st.info(f"Nothing in **{PROJECT}** yet. Add a meeting or a PDF in the **Add** tab.")
     else:
-        ids = [m["source_id"] for m in meetings]
+        ids = [x["source_id"] for x in sources]
         current = st.session_state.get("selected_meeting")
         chosen = st.selectbox(
-            "Meeting",
+            "Item",
             ids,
             index=ids.index(current) if current in ids else 0,
-            format_func=lambda i: next(f"{m['title']} — {nice_date(m['date'])}" for m in meetings if m["source_id"] == i),
+            format_func=source_label,
             label_visibility="collapsed",
         )
         st.session_state.selected_meeting = chosen
         m = vector_store.get_source(WS, chosen)
+
+    if m and m.get("source_type") == "pdf":
+        st.markdown(f'<div class="video-title">📄 {esc(m["title"])}</div>', unsafe_allow_html=True)
+        st.markdown(
+            f'<span class="meta-chip">📅 {nice_date(m["date"])}</span>'
+            f'<span class="meta-chip">📑 {m.get("page_count", 0)} pages</span>'
+            f'<span class="meta-chip">📝 {m.get("word_count", 0)} words</span>'
+            f'<span class="meta-chip">🗂️ {esc(m.get("origin_ref", ""))}</span>',
+            unsafe_allow_html=True,
+        )
+        with st.container(border=True):
+            st.markdown(m["summary"])
+        c1, c2, _ = st.columns([2, 2, 4])
+        c1.download_button(
+            "⬇️ Download summary (.md)", f"# {m['title']}\n\n{m['summary']}\n",
+            file_name=f"{slugify(m['title'])}-summary.md", mime="text/markdown", width="stretch",
+        )
+        with c2.popover("🗑️ Delete document", width="stretch"):
+            st.write("This removes the document from this project's memory.")
+            if st.button("Yes, delete it", type="primary", key="del_doc"):
+                vector_store.delete_source(WS, chosen)
+                st.session_state.pop("selected_meeting", None)
+                st.session_state.pop("last_docs", None)
+                st.rerun()
+    elif m:
 
         st.markdown(f'<div class="video-title">📌 {esc(m["title"])}</div>', unsafe_allow_html=True)
         done = sum(1 for a in m["action_items"] if a["status"] == "done")
@@ -505,8 +600,8 @@ with tab_ask:
     all_projects = st.toggle(
         "Search all projects", value=False, help="Off: only this project. On: every project in your workspace."
     )
-    if not meetings and not all_projects:
-        st.info(f"No meetings in **{PROJECT}** yet. Add one first, or turn on *Search all projects*.")
+    if not sources and not all_projects:
+        st.info(f"Nothing in **{PROJECT}** yet. Add a meeting or PDF first, or turn on *Search all projects*.")
     else:
         history_key = f"chat_{WS}_{'*' if all_projects else PROJECT}"
         history = st.session_state.setdefault(history_key, [])
@@ -517,9 +612,9 @@ with tab_ask:
         else:
             scope = f1.multiselect(
                 f"Search in ({PROJECT})",
-                [m["source_id"] for m in meetings],
-                format_func=lambda i: next(f"{m['title']} ({nice_date(m['date'])})" for m in meetings if m["source_id"] == i),
-                placeholder=f"All meetings in {PROJECT}",
+                [x["source_id"] for x in sources],
+                format_func=source_label,
+                placeholder=f"Everything in {PROJECT}",
             )
         if f2.button("Clear chat", width="stretch"):
             st.session_state[history_key] = []
@@ -548,7 +643,7 @@ with tab_ask:
                                 unsafe_allow_html=True,
                             )
 
-        typed = st.chat_input("Ask anything about your meetings…")
+        typed = st.chat_input("Ask anything about your meetings and documents…")
         question = typed or st.session_state.pop("pending_question", None)
         if question:
             with st.spinner("Searching your meetings…"):

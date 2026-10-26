@@ -16,9 +16,11 @@ excerpts below, which come from the user's recorded meetings and documents.
 
 Rules:
 - Put the excerpt number in square brackets after every claim, e.g. "Use a 70/30 split [2]."
-- If excerpts from different dates disagree, say what changed and when; the newer one wins.
+- If meetings from different dates disagree, say what changed and when; the newer one wins.
+- Documents are reference material (papers, slides, notes). If a document and a meeting differ,
+  report both, e.g. "the paper uses X [1], but in the meeting you decided Y [3]".
 - If the excerpts don't contain the answer, reply exactly:
-  "I couldn't find this in your meetings."
+  "I couldn't find this in your meetings or documents."
 - Be concise. Today's date is {today}.
 
 Excerpts:
@@ -54,7 +56,7 @@ def answer_question(
     question: str,
     source_ids: list[str] | None = None,
     history: list[dict] | None = None,
-    k: int = 6,
+    k: int = 8,
     project: str | None = None,
 ) -> dict:
     """Returns {"answer": str, "sources": [hit, ...]} where sources are the excerpts the answer cited."""
@@ -64,7 +66,7 @@ def answer_question(
 
     hits = vector_store.search(workspace, retrieval_query, k=k, source_ids=source_ids, project=project)
     if not hits:
-        return {"answer": "I couldn't find this in your meetings.", "sources": []}
+        return {"answer": "I couldn't find this in your meetings or documents.", "sources": []}
 
     hits.sort(key=lambda h: (h.get("date", ""), h.get("start", 0) or h.get("page", 0)))
     recent = "\n".join(f"{m['role']}: {m['content'][:500]}" for m in (history or [])[-4:])
