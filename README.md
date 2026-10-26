@@ -10,6 +10,12 @@ hour of audio to find one comment isn't practical.
 
 ## Features
 
+- **Welcome page with a one-click demo:** the public link opens on a short intro
+  and an example of a fact-checked summary. **Open the demo** loads a ready-made
+  project (two sample thesis meetings with follow-ups and fact-checks, no API
+  calls needed); **Use my own workspace** opens your private projects. Set
+  `SKIP_WELCOME=1` to go straight into the app.
+
 - **Three ways in:** record in the browser, upload audio/video, or paste a YouTube link.
 - **Timestamped transcription**
   - **Whisper large-v3-turbo on Groq** (default): fast, no GPU, works when hosted.
@@ -70,7 +76,7 @@ PDF ── documents.py ── pypdf page text → page-tagged chunks ──┘
 ```
 
 ```
-app.py              Streamlit UI (Add · Library · Ask · Follow-ups)
+app.py              Streamlit UI: welcome page, then Add · Library · Ask · Follow-ups
 main.py             CLI: add / ask / list
 core/
   pipeline.py       end-to-end processing of one recording
@@ -79,6 +85,7 @@ core/
   extractor.py      action items / decisions / questions as validated JSON
   documents.py      PDF upload: page extraction, page-tagged chunks, summary
   factcheck.py      claim-level fact-check of summaries and answers (LLM judge + retrieval)
+  sample_data.py    the demo project shown from the welcome page (hand-written, no LLM calls)
 eval/
   faithfulness.py   faithfulness score over all summaries in a workspace
   vector_store.py   Qdrant collections, chunking, workspace isolation
@@ -114,6 +121,7 @@ QDRANT_API_KEY=your_qdrant_api_key
 # Optional
 GROQ_MODEL=openai/gpt-oss-120b          # any Groq chat model
 DEFAULT_WORKSPACE=demo
+SKIP_WELCOME=0                          # 1 = skip the welcome page
 ```
 
 ### Qdrant Cloud (needed for memory to survive restarts on Streamlit Cloud)

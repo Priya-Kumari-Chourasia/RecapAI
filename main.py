@@ -17,7 +17,6 @@ load_dotenv()
 from core import rag_engine, vector_store  # noqa: E402
 from core.documents import process_pdf  # noqa: E402
 from core.pipeline import process_recording  # noqa: E402
-from core.transcriber import format_timestamp  # noqa: E402
 
 WS = vector_store.workspace_id(os.getenv("RECAP_WORKSPACE", os.getenv("DEFAULT_WORKSPACE", "demo")))
 
