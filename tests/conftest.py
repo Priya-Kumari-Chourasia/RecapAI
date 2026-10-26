@@ -80,3 +80,35 @@ def memory():
     vector_store.set_embedder(HashEmbedder())
     vector_store.set_client(QdrantClient(":memory:"))
     yield vector_store
+
+
+def make_pdf(path, pages, title=None):
+    """Write a minimal text PDF by hand (no extra dependency). `pages` is a list of strings;
+    an empty string makes a page with no text, like a scanned image page."""
+    objects = ["<< /Type /Catalog /Pages 2 0 R >>", None, "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>"]
+    kids = []
+    for text in pages:
+        safe = text.replace("\\", "\\\\").replace("(", "\\(").replace(")", "\\)")
+        stream = f"BT /F1 11 Tf 40 760 Td ({safe}) Tj ET" if text else ""
+        objects.append(f"<< /Length {len(stream)} >>\nstream\n{stream}\nendstream")
+        content_id = len(objects)
+        objects.append(f"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents {content_id} 0 R "
+                       f"/Resources << /Font << /F1 3 0 R >> >> >>")
+        kids.append(f"{len(objects)} 0 R")
+    objects[1] = f"<< /Type /Pages /Kids [{' '.join(kids)}] /Count {len(kids)} >>"
+    info_id = None
+    if title:
+        objects.append(f"<< /Title ({title}) >>")
+        info_id = len(objects)
+    out, offsets = b"%PDF-1.4\n", []
+    for i, obj in enumerate(objects, 1):
+        offsets.append(len(out))
+        out += f"{i} 0 obj\n{obj}\nendobj\n".encode("latin-1")
+    xref = len(out)
+    out += f"xref\n0 {len(objects) + 1}\n0000000000 65535 f \n".encode()
+    out += "".join(f"{o:010d} 00000 n \n" for o in offsets).encode()
+    trailer = f"<< /Size {len(objects) + 1} /Root 1 0 R" + (f" /Info {info_id} 0 R" if info_id else "") + " >>"
+    out += f"trailer\n{trailer}\nstartxref\n{xref}\n%%EOF\n".encode()
+    with open(path, "wb") as f:
+        f.write(out)
+    return str(path)

@@ -1,6 +1,7 @@
 """Command-line version of Recap AI.
 
     python main.py add <file-or-youtube-url> [--project P] [--title T] [--date YYYY-MM-DD] [--engine groq|sarvam|local]
+    python main.py add-pdf <file.pdf> [--project P] [--title T] [--date YYYY-MM-DD]
     python main.py ask [--project P]          (no --project = search all projects)
     python main.py list [--project P]
 
@@ -14,6 +15,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from core import rag_engine, vector_store  # noqa: E402
+from core.documents import process_pdf  # noqa: E402
 from core.pipeline import process_recording  # noqa: E402
 from core.transcriber import format_timestamp  # noqa: E402
 
@@ -38,14 +40,21 @@ def cmd_add(args):
     print("=" * 60)
 
 
+def cmd_add_pdf(args):
+    d = process_pdf(args.source, WS, project=args.project or vector_store.DEFAULT_PROJECT,
+                    title=args.title, doc_date=args.date)
+    print(f"\n📄 {d['title']} ({d['page_count']} pages)\n\n{d['summary']}")
+
+
 def cmd_list(args):
     for m in vector_store.list_sources(WS, project=args.project):
         open_items = sum(1 for a in m.get("action_items", []) if a["status"] != "done")
-        print(f"{m['date']}  [{m.get('project')}]  {m['title']}  ({open_items} open action items)")
+        kind = "PDF    " if m.get("source_type") == "pdf" else "meeting"
+        print(f"{m['date']}  {kind}  [{m.get('project')}]  {m['title']}  ({open_items} open action items)")
 
 
 def cmd_ask(args):
-    print("💬 Ask across your meetings (type 'exit' to quit)\n")
+    print("💬 Ask across your meetings and documents (type 'exit' to quit)\n")
     history = []
     while True:
         question = input("You: ").strip()
@@ -71,6 +80,12 @@ if __name__ == "__main__":
     add.add_argument("--date")
     add.add_argument("--engine", default="groq", choices=["groq", "sarvam", "local"])
     add.set_defaults(func=cmd_add)
+    pdf = sub.add_parser("add-pdf", help="Add a PDF (paper, slides, notes) to a project")
+    pdf.add_argument("source")
+    pdf.add_argument("--project", help="Project name (default: General)")
+    pdf.add_argument("--title")
+    pdf.add_argument("--date")
+    pdf.set_defaults(func=cmd_add_pdf)
     for name, func, help_text in [("ask", cmd_ask, "Chat across meetings"), ("list", cmd_list, "List saved meetings")]:
         cmd = sub.add_parser(name, help=help_text)
         cmd.add_argument("--project", help="Limit to one project (default: all projects)")
