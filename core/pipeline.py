@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 
 from core import vector_store
 from core.extractor import extract_insights
+from core.factcheck import run_fact_check
 from core.summarizer import generate_title, summarize
 from core.tracker import track_followups
 from core.transcriber import segments_to_text, transcribe_all
@@ -95,4 +96,5 @@ def save_meeting(record: dict, progress=print) -> dict:
     vector_store.save_source(record, vector_store.chunk_segments(record["segments"]))
     progress("🔁 Checking earlier action items against this meeting…")
     followups = track_followups(record["workspace"], record)
+    run_fact_check(record, progress)
     return {"meeting": record, "followups": followups}

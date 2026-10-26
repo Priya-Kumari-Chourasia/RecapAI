@@ -12,6 +12,7 @@ from datetime import datetime, timezone
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 from core import vector_store
+from core.factcheck import run_fact_check
 from core.llm import complete
 
 CHUNK_CHARS = 900
@@ -106,4 +107,5 @@ def process_pdf(
     chunks = chunk_pages(pages)
     progress(f"🧠 Saving {len(chunks)} passages to your project memory…")
     vector_store.save_source(record, chunks)
+    run_fact_check(record, progress)
     return record

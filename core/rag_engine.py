@@ -75,4 +75,5 @@ def answer_question(
     answer = complete(SYSTEM.format(today=date.today().isoformat(), context=build_context(hits)), human)
     cited = cited_numbers(answer, len(hits))
     sources = [{**hits[n - 1], "ref": n} for n in cited]
-    return {"answer": answer, "sources": sources}
+    # `context` = every excerpt the model saw; the fact-checker judges the answer against it.
+    return {"answer": answer, "sources": sources, "context": hits}

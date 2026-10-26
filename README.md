@@ -33,6 +33,12 @@ hour of audio to find one comment isn't practical.
   question is answered from both, with sources like `Bonsai paper · p. 4` next to
   `Thesis sync · 03 Oct 2026 · 12:34`. If a paper and a meeting disagree, the
   answer reports both. Scanned PDFs without a text layer get a clear message.
+- **Fact-check (hallucination detection):** every summary point is checked against
+  its own meeting or PDF. For each point the most relevant passages are retrieved
+  and an LLM judge labels it ✅ supported / ⚠️ partly supported / ❌ not in the
+  source, with the supporting quote and its timestamp or page. Summaries get a
+  faithfulness score (e.g. "7/8 points verified · 94% faithful"), and any chat
+  answer can be checked the same way with **Check this answer**.
 - **Projects:** keep each project's meetings separate (e.g. *Thesis*, *BrickMind*).
   Meetings, chat and follow-ups are scoped to the selected project, so one
   project's tasks are never matched against another's meetings. Turn on
@@ -57,6 +63,7 @@ summarizer.py (map-reduce)    extractor.py (JSON → Pydantic)
         ▼
 vector_store.py ── Qdrant: recap_chunks (text + start/end) and recap_sources (meeting records)
         │                  embeddings: fastembed BAAI/bge-small-en-v1.5 (ONNX, no PyTorch)
+        ├── factcheck.py   verify summary points / answers against the source
         ├── tracker.py     carry action items forward across meetings
         └── rag_engine.py  Q&A across meetings + PDFs with [n] citations
 PDF ── documents.py ── pypdf page text → page-tagged chunks ──┘
@@ -71,6 +78,9 @@ core/
   summarizer.py     title + map-reduce summary
   extractor.py      action items / decisions / questions as validated JSON
   documents.py      PDF upload: page extraction, page-tagged chunks, summary
+  factcheck.py      claim-level fact-check of summaries and answers (LLM judge + retrieval)
+eval/
+  faithfulness.py   faithfulness score over all summaries in a workspace
   vector_store.py   Qdrant collections, chunking, workspace isolation
   rag_engine.py     cross-meeting retrieval + cited answers
   tracker.py        follow-up tracking across meetings
@@ -122,6 +132,7 @@ python main.py add meeting.mp3 --project Thesis --title "Thesis sync" --date 202
 python main.py add-pdf bonsai.pdf --project Thesis
 python main.py ask --project Thesis   # omit --project to search every project
 python main.py list
+python -m eval.faithfulness --project Thesis --csv claims.csv   # faithfulness report
 pytest -q                     # offline tests
 ```
 
@@ -150,6 +161,14 @@ asks the user to upload or record instead. Optional workarounds:
   Use a throwaway Google account, because accounts used this way can be banned,
   and cookies expire.
 - `YTDLP_PROXY`: route downloads through a (residential) proxy.
+
+## Evaluation
+
+`python -m eval.faithfulness` fact-checks every summary in a workspace (results
+are cached on each meeting, `--recheck` re-runs them) and prints per-meeting and
+overall faithfulness, defined as (supported + 0.5 × partial) / all summary points,
+plus the unsupported points so you can see what the summarizer gets wrong.
+`--csv` exports every claim with its verdict and evidence.
 
 ## Notes
 

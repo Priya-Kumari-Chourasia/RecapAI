@@ -273,5 +273,5 @@ def test_llm_flags_reassigned_task_as_duplicate_but_keeps_different_task(fake_ll
 
     kept = [a["task"] for a in vector_store.get_source(ws, second["meeting"]["source_id"])["action_items"]]
     assert kept == ["Run ablation on dataset B"]  # re-assignment dropped, the new dataset-B task kept
-    tracker_prompt = fake_llm.calls[-1][1]
+    tracker_prompt = next(h for sys_, h in reversed(fake_llm.calls) if "track action items" in sys_)
     assert "NEW ITEM 1: Priya to continue the dataset A ablation" in tracker_prompt
